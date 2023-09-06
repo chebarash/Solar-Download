@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import { Api } from "figma-api";
 import readline from "readline";
-import http from "http";
+import https from "https";
 
 import { IconsType, UrlsType } from "./types";
 
@@ -72,7 +72,7 @@ const chunkSize = 580;
   const result = await prompt(`Ok? [y,n] `);
   if (result != `y`) return rl.close();
 
-  const req = http.request(
+  const req = https.request(
     {
       hostname: HOSTNAME,
       path: `/${BOT}`,
