@@ -10,9 +10,9 @@ import Download from "./download";
 import log from "./log";
 
 dotenv.config();
-const { TOKEN, FILE, BOT } = process.env;
+const { TOKEN, FILE, HOSTNAME, BOT } = process.env;
 
-if (!TOKEN || !FILE || !BOT) {
+if (!TOKEN || !FILE || !HOSTNAME || !BOT) {
   console.error(`Environment Variables not set`);
   process.exit(1);
 }
@@ -74,8 +74,7 @@ const chunkSize = 580;
 
   const req = http.request(
     {
-      hostname: `localhost`,
-      port: `3000`,
+      hostname: HOSTNAME,
       path: `/${BOT}`,
       method: `POST`,
       headers: {
