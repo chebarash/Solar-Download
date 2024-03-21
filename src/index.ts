@@ -1,18 +1,18 @@
 import dotenv from "dotenv";
 import { Api } from "figma-api";
 import readline from "readline";
-import https from "https";
+import { connect, disconnect } from "mongoose";
+import { Schema, model } from "mongoose";
 
 import { IconsType, UrlsType } from "./types";
 
-import progress from "./progress";
 import Download from "./download";
 import log from "./log";
 
 dotenv.config();
-const { TOKEN, FILE, HOSTNAME, BOT } = process.env;
+const { TOKEN, FILE, DB_CONNECTION_STRING } = process.env;
 
-if (!TOKEN || !FILE || !HOSTNAME || !BOT) {
+if (!TOKEN || !FILE || !DB_CONNECTION_STRING) {
   console.error(`Environment Variables not set`);
   process.exit(1);
 }
@@ -28,72 +28,58 @@ const prompt = (query: string) =>
 const api = new Api({ personalAccessToken: TOKEN });
 const chunkSize = 580;
 
+const IconsSchema = new Schema<{ icons: IconsType }>({ icons: Object });
+const Icons = model<{ icons: IconsType }>("Icons", IconsSchema);
+
 (async () => {
   const icons: IconsType = {};
-  const urls: UrlsType = {};
 
   console.log(`Get File`);
 
   const { components } = await api.getFile(FILE, { ids: [`0:1`] });
   const ids = Object.keys(components);
 
-  console.log(`Get Image`);
-
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    progress(ids.length, i + chunkSize);
-    Object.assign(
-      urls,
-      (
-        await api.getImage(FILE, {
-          ids: ids.slice(i, i + chunkSize).join(`,`),
-          format: `svg`,
-          scale: 1,
-        })
-      ).images
-    );
-  }
-
   console.log(`Downloading`);
 
-  const { getIcon } = new Download(urls);
-  await Promise.all(
-    ids.map(async (id) => {
-      const [style, category, name]: Array<string> = components[id].name
-        .split(` / `)
-        .map((s) => s.replace(/  /, ` `).trim());
-      if (!icons[category]) icons[category] = {};
-      if (!icons[category][name]) icons[category][name] = {};
-      return (icons[category][name][style] = await getIcon(urls[id]));
-    })
-  );
+  const { getIcon } = new Download(ids.length);
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunkIds = ids.slice(i, i + chunkSize);
+    const urls = (
+      await api.getImage(FILE, {
+        ids: chunkIds.join(`,`),
+        format: `svg`,
+        scale: 1,
+      })
+    ).images as UrlsType;
+    await Promise.all(
+      chunkIds.map(async (id) => {
+        const [style, category, name]: Array<string> = components[id].name
+          .split(` / `)
+          .map((s) => s.replace(/  /, ` `).trim());
+        if (!icons[category]) icons[category] = {};
+        if (!icons[category][name]) icons[category][name] = {};
+        return (icons[category][name][style] = (await getIcon(urls[id]))
+          .replace(/\n/g, ``)
+          .replace(
+            `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">`,
+            ``
+          )
+          .replace(`</svg>`, ``));
+      })
+    );
+  }
 
   log(icons);
 
   const result = await prompt(`Ok? [y,n] `);
   if (result != `y`) return rl.close();
 
-  const req = https.request(
-    {
-      hostname: HOSTNAME,
-      path: `/${BOT}`,
-      method: `POST`,
-      headers: {
-        "Content-Type": `application/json`,
-      },
-    },
-    (res) => {
-      console.log(`Status: ` + res.statusCode);
-      res.setEncoding(`utf8`);
-      res.on(`data`, function (body) {
-        console.log(`Body: ` + body);
-        return rl.close();
-      });
-    }
-  );
-  req.on(`error`, function (e) {
-    console.log(`problem with request: ` + e.message);
-    return rl.close();
-  });
-  req.write(JSON.stringify(icons));
-  req.end();
+  await connect(DB_CONNECTION_STRING);
+
+  await Icons.deleteMany({});
+  await new Icons({ icons }).save();
+
+  await disconnect();
+  process.exit(0);
 })();
